@@ -1,0 +1,116 @@
+package templates
+
+import (
+    "time"
+	"github.com/pocketbase/pocketbase/models"
+)
+
+templ root(title string) {
+    <!DOCTYPE html>
+    <html lang="en">
+    @head(title)
+    <body class="bg-gray-100 text-sm">
+      { children... }
+    </body>
+    </html>
+}
+
+templ scripts() {
+    <script src="//cdn.tailwindcss.com"></script>
+    <script src="//unpkg.com/htmx.org@2.0.2/dist/htmx.js" integrity="sha384-yZq+5izaUBKcRgFbxgkRYwpHhHHCpp5nseXp0MEQ1A4MTWVMnqkmcuFez8x5qfxr" crossorigin="anonymous"></script>
+}
+
+templ head(title string) {
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport"
+              content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+        <meta http-equiv="X-UA-Compatible" content="ie=edge">
+        <title>{title} - Feedback</title>
+
+        @scripts()
+    </head>
+}
+
+templ Index () {
+    @root("Create Space") {
+        <div class="container mx-auto p-4">
+            <h1 class="text-2xl font-bold">Feedback</h1>
+            <form action="/feedback" method="post" class="mt-4">
+                <div class="mb-4">
+                    <label for="title" class="block text-gray-700 text-sm font-bold mb-2">Title</label>
+                    <input type="text" name="title" id="title" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                </div>
+                <div class="mb-4">
+                    <label for="valid_until" class="block text-gray-700 text-sm font-bold mb-2">Valid until</label>
+                    <input type="datetime-local" name="valid_until" id="valid_until" value={ time.Now().AddDate(0, 1, 0 ).Format(time.DateTime) } class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                </div>
+                <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">Submit</button>
+            </form>
+        </div>  
+    }
+}
+
+templ Feedback (space *models.Record, questions []*models.Record, choicesByQuestion map[string][]*models.Record) {
+    @root(space.GetString("title")) {
+        <div class="container mx-auto p-4">
+            <h1 class="text-2xl font-bold">{space.GetString("title")}</h1>
+
+            <form method="post" action={templ.URL("/s/" + space.GetString("slug") + "/question")}>
+                <input type="hidden" name="space_id" value={space.GetString("id")} />
+                <div class="mt-4">
+                    <label for="text" class="block text-gray-700 text-sm font-bold mb-2">Question</label>
+                    <input type="text" name="text" id="text" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                </div>
+                <div class="mt-4">
+                    <label for="type" class="block text-gray-700 text-sm font-bold mb-2">Type</label>
+                    <select name="type" id="type" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                        <option value="textarea">Textarea</option>
+                        <option value="single">Multiple choice (single)</option>
+                        <option value="multiple">Multiple choice (multi)</option>
+                    </select>
+                </div>
+                <div class="mt-4">
+                    <label for="choice_1" class="block text-gray-700 text-sm font-bold mb-2">Choice 1</label>
+                    <input type="text" name="choices[]" id="choice_1" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                </div>
+
+                <div class="mt-2">
+                    <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">Add Question</button>
+                </div>
+            </form>
+
+            <div class="mt-4">
+                <ul class="space-y-2">
+                    for _, question := range questions {
+                        <li class="shadow rounded p-2 bg-white">
+                            <div>
+                                {question.GetString("text")}
+                            </div>
+                            <div class="mt-4">
+                                if question.GetString("type") == "textarea" {
+                                    <textarea name={question.GetString("id")} class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"></textarea>
+                                } else {
+                                    for _, choice := range choicesByQuestion[question.GetString("id")] {
+                                        <div class="bg-gray-200 py-1">
+                                            <input type={inputType(question)} name={question.GetString("id")} value={choice.Id} id={question.Id + "_" + choice.Id} hidden />
+                                            <label for={question.Id + "_" + choice.Id}>{choice.GetString("text")}</label><br>
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        </li>
+                    }
+                </ul>
+            </div>
+        </div>
+    }
+}
+
+func inputType(question *models.Record) string {
+    if question.GetString("type") == "multiple" {
+        return "checkbox"
+    }
+    return "radio"
+}
+
