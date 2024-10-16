@@ -6,10 +6,12 @@ import (
 	"database/sql"
 	"errors"
 	"feedback/templates"
+	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/pocketbase/pocketbase/daos"
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 
@@ -76,7 +78,7 @@ func main() {
 
 			questions, err := app.Dao().FindRecordsByExpr(
 				"questions",
-				dbx.NewExp("space_id = {:space_id} ORDER BY sort_order", dbx.Params{"space_id": space.Id}),
+				dbx.NewExp("space_id = {:space_id} ORDER BY sort_order DESC", dbx.Params{"space_id": space.Id}),
 			)
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				return err
@@ -137,12 +139,21 @@ func main() {
 
 			err = app.Dao().RunInTransaction(func(txDao *daos.Dao) error {
 				question := models.NewRecord(questions)
-				question.Set("space_id", space.Id)
-				question.Set("text", c.Request().FormValue("text"))
-				question.Set("type", c.Request().FormValue("type"))
-				question.Set("sort_order", result.MaxSortOrder+1)
 
-				if err = txDao.SaveRecord(question); err != nil {
+				form := forms.NewRecordUpsert(app, question)
+				form.SetDao(txDao)
+
+				err = form.LoadData(map[string]any{
+					"space_id":   space.Id,
+					"text":       c.Request().FormValue("text"),
+					"type":       c.Request().FormValue("type"),
+					"sort_order": result.MaxSortOrder + 1,
+				})
+				if err != nil {
+					return err
+				}
+
+				if err = form.Submit(); err != nil {
 					return err
 				}
 
@@ -160,15 +171,37 @@ func main() {
 					return nil
 				}
 
+				var hasValidChoice bool
 				for i, choice := range createChoices {
-					choiceRecord := models.NewRecord(choices)
-					choiceRecord.Set("question_id", question.Id)
-					choiceRecord.Set("sort_order", i)
-					choiceRecord.Set("text", choice)
+					if choice == "" {
+						continue
+					}
 
-					if err = txDao.SaveRecord(choiceRecord); err != nil {
+					choiceRecord := models.NewRecord(choices)
+
+					form := forms.NewRecordUpsert(app, choiceRecord)
+					form.SetDao(txDao)
+
+					err = form.LoadData(map[string]any{
+						"question_id": question.Id,
+						"sort_order":  i,
+						"text":        choice,
+					})
+					if err != nil {
 						return err
 					}
+
+					if err = form.Submit(); err != nil {
+						return err
+					}
+
+					hasValidChoice = true
+				}
+
+				if !hasValidChoice {
+					return apis.NewApiError(http.StatusBadRequest, "At least one choice is required.", map[string]validation.Error{
+						"choices": validation.NewError("required", "At least one choice is required."),
+					})
 				}
 
 				return nil
@@ -177,9 +210,15 @@ func main() {
 				return err
 			}
 
+			if c.Request().Header.Get("HX-Request") == "true" {
+				return Render(c, http.StatusOK, templates.Form(space))
+			}
+
 			return c.Redirect(http.StatusFound, "/s/"+c.PathParam("slug")+"?created")
 
-		})
+		}, apis.ActivityLogger(app))
+
+		e.Router.GET("/*", apis.StaticDirectoryHandler(os.DirFS("./pb_public"), false))
 
 		return nil
 	})
