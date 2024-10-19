@@ -106,7 +106,23 @@ func main() {
 				choicesByQuestion[questionID] = append(choicesByQuestion[questionID], choice)
 			}
 
-			return Render(c, http.StatusOK, templates.Feedback(space, questions, choicesByQuestion))
+			var answers []*models.Record
+			query = app.Dao().RecordQuery("answers").
+				AndWhere(dbx.In("question_id", questionIDs...)).
+				OrderBy("created DESC").
+				Limit(100)
+
+			if err = query.All(&answers); err != nil {
+				return err
+			}
+
+			answersByQuestion := make(map[string][]*models.Record)
+			for _, answer := range answers {
+				questionID := answer.GetString("question_id")
+				answersByQuestion[questionID] = append(answersByQuestion[questionID], answer)
+			}
+
+			return Render(c, http.StatusOK, templates.Feedback(space, questions, choicesByQuestion, answersByQuestion))
 		})
 
 		e.Router.POST("/s/:slug/question", func(c echo.Context) error {
@@ -145,7 +161,7 @@ func main() {
 
 				err = form.LoadData(map[string]any{
 					"space_id":   space.Id,
-					"text":       c.Request().FormValue("text"),
+					"text":       strings.TrimSpace(c.Request().FormValue("text")),
 					"type":       c.Request().FormValue("type"),
 					"sort_order": result.MaxSortOrder + 1,
 				})
@@ -179,19 +195,19 @@ func main() {
 
 					choiceRecord := models.NewRecord(choices)
 
-					form := forms.NewRecordUpsert(app, choiceRecord)
-					form.SetDao(txDao)
+					choiceForm := forms.NewRecordUpsert(app, choiceRecord)
+					choiceForm.SetDao(txDao)
 
-					err = form.LoadData(map[string]any{
+					err = choiceForm.LoadData(map[string]any{
 						"question_id": question.Id,
-						"sort_order":  i,
-						"text":        choice,
+						"sort_order":  i + 1,
+						"text":        strings.TrimSpace(choice),
 					})
 					if err != nil {
 						return err
 					}
 
-					if err = form.Submit(); err != nil {
+					if err = choiceForm.Submit(); err != nil {
 						return err
 					}
 
@@ -216,6 +232,56 @@ func main() {
 
 			return c.Redirect(http.StatusFound, "/s/"+c.PathParam("slug")+"?created")
 
+		}, apis.ActivityLogger(app))
+
+		e.Router.POST("/s/:slug/answer", func(c echo.Context) error {
+			collection, err := app.Dao().FindCollectionByNameOrId("answers")
+			if err != nil {
+				return err
+			}
+
+			err = c.Request().ParseForm()
+			if err != nil {
+				return err
+			}
+
+			err = app.Dao().RunInTransaction(func(txDao *daos.Dao) error {
+				createAnswers, ok := c.Request().PostForm["text[]"]
+				if !ok {
+					return nil
+				}
+
+				for _, text := range createAnswers {
+					record := models.NewRecord(collection)
+
+					form := forms.NewRecordUpsert(app, record)
+					form.SetDao(txDao)
+
+					err = form.LoadData(map[string]any{
+						"question_id": c.Request().FormValue("question_id"),
+						"text":        strings.TrimSpace(text),
+					})
+
+					if err != nil {
+						return err
+					}
+
+					if err = form.Submit(); err != nil {
+						return err
+					}
+				}
+
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+
+			if c.Request().Header.Get("HX-Request") == "true" {
+				return c.String(http.StatusOK, "")
+			}
+
+			return c.Redirect(http.StatusFound, "/s/"+c.PathParam("slug")+"?answered")
 		}, apis.ActivityLogger(app))
 
 		e.Router.GET("/*", apis.StaticDirectoryHandler(os.DirFS("./pb_public"), false))

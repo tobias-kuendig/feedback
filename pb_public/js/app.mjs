@@ -23,4 +23,17 @@ pb.collection("choices").subscribe("*", e => {
     }
 }, { headers: { 'X-Space': space.id }});
 
+pb.collection("answers").subscribe("*", e => {
+    if (e.action === 'create') {
+        let answers = Alpine.store('space').answersByQuestion[e.record.question_id]
+        if (!Array.isArray(answers)) {
+            answers = []
+        }
+
+        answers.unshift(e.record)
+
+        Alpine.store('space').answersByQuestion[e.record.question_id] = answers
+    }
+}, { headers: { 'X-Space': space.id }});
+
 export default pb
