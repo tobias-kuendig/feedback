@@ -1,8 +1,11 @@
 # Features
+
 ## Spaces
 * [ ] «Spaces» can be created by any user without signup
 * [ ] Each Space has a shareable URL
 * [ ] The user who created the Space is automatically the admin of it (only for the current session)
+* [ ] Space creation needs to be rate limitted
+* [ ] The Space URL should be shareable by e-mail (invite link)
 
 ## Questions
 
