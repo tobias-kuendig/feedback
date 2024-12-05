@@ -51,12 +51,13 @@ func main() {
 			slug := slugify(strings.TrimSpace(c.Request().FormValue("title")) + "-" + randomString(4))
 
 			// or form.LoadRequest(r, "")
+			password := randomString(8)
 			err = form.LoadData(map[string]any{
 				"title":       c.Request().FormValue("title"),
 				"valid_until": c.Request().FormValue("valid_until"),
 				"slug":        slug,
 				"pin":         randomNumber(100_000, 999_999),
-				"password":    randomString(8),
+				"password":    password,
 			})
 			if err != nil {
 				return err
@@ -67,7 +68,7 @@ func main() {
 				return err
 			}
 
-			return c.Redirect(http.StatusFound, "/s/"+slug+"?created")
+			return c.Redirect(http.StatusFound, "/s/"+slug+"?created&password="+password)
 		}, apis.ActivityLogger(app))
 
 		e.Router.GET("/s/:slug", func(c echo.Context) error {
@@ -122,13 +123,18 @@ func main() {
 				answersByQuestion[questionID] = append(answersByQuestion[questionID], answer)
 			}
 
-			return Render(c, http.StatusOK, templates.Feedback(space, questions, choicesByQuestion, answersByQuestion))
+			return Render(c, http.StatusOK, templates.Feedback(space, questions, choicesByQuestion, answersByQuestion, c.QueryParam("password")))
 		})
 
 		e.Router.POST("/s/:slug/question", func(c echo.Context) error {
 			space, err := app.Dao().FindFirstRecordByData("spaces", "slug", c.PathParam("slug"))
 			if err != nil {
 				return err
+			}
+			password := c.FormValue("password")
+
+			if space.GetString("password") != password {
+				return apis.NewApiError(http.StatusBadRequest, "Invalid password", nil)
 			}
 
 			questions, err := app.Dao().FindCollectionByNameOrId("questions")
@@ -227,7 +233,7 @@ func main() {
 			}
 
 			if c.Request().Header.Get("HX-Request") == "true" {
-				return Render(c, http.StatusOK, templates.Form(space))
+				return Render(c, http.StatusOK, templates.Form(space, password))
 			}
 
 			return c.Redirect(http.StatusFound, "/s/"+c.PathParam("slug")+"?created")

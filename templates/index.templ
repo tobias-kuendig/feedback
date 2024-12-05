@@ -35,6 +35,26 @@ templ scripts() {
         }
       }
     </script>
+    <script>
+        function copyTextToClipboard(text) {
+            const input = document.createElement("input");
+            input.value = text;
+            document.body.appendChild(input);
+            input.select();
+            document.execCommand("copy");
+            document.body.removeChild(input);
+        }
+
+        function getSharableUrl() {
+            const url = new URL(document.URL)
+            url.search = ''
+            return url.toString()
+        }
+
+        function copySharableUrl() {
+            copyTextToClipboard(getSharableUrl())
+        }
+    </script>
 }
 
 templ head(title string) {
@@ -68,12 +88,22 @@ templ Index () {
     }
 }
 
-templ Feedback (space *models.Record, questions []*models.Record, choicesByQuestion, answersByQuestion map[string][]*models.Record) {
+templ Feedback (space *models.Record, questions []*models.Record, choicesByQuestion, answersByQuestion map[string][]*models.Record, password string) {
     @root(space.GetString("title")) {
         <div class="container mx-auto p-4">
             <h1 class="text-2xl font-bold">{space.GetString("title")}</h1>
+            <div x-data>
+                <h6 class="text-base text-gray-800">Share me</h6>
+                <div class="w-full rounded-lg overflow-hidden border border-gray-300 flex items-center mt-4" x-on:click="copySharableUrl()">
+                    <div class="text-sm text-gray-500 flex-1 ml-4" x-text="getSharableUrl()">
+                    </div>
+                    <button class="bg-blue-600 hover:bg-blue-700 px-6 py-3 text-sm text-white">Copy</button>
+                </div>
+            </div>
 
-            @Form(space)
+            if len(password) > 0 {
+                @Form(space, password)
+            }
 
             @templ.JSONScript("questions", questions)
             @templ.JSONScript("choicesByQuestion", choicesByQuestion)
@@ -154,7 +184,7 @@ templ Feedback (space *models.Record, questions []*models.Record, choicesByQuest
     }
 }
 
-templ Form (space *models.Record) {
+templ Form (space *models.Record, password string) {
     <form
          method="post"
          action={templ.URL("/s/" + space.GetString("slug") + "/question")}
@@ -164,6 +194,7 @@ templ Form (space *models.Record) {
          hx-push-url="false"
          x-data="{ selectedType: 'textarea', choices: ['', '', ''] }">
         <input type="hidden" name="space_id" value={space.GetString("id")} />
+        <input type="hidden" name="password" value={password} />
         <div class="mt-4">
             <label for="text" class="block text-gray-700 text-sm font-bold mb-2">Question</label>
             <input type="text" name="text" id="text" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
